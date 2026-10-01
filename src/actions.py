@@ -85,6 +85,15 @@ def action(cmd,asof,data):
         return [{'type':'slack.send_message','args':{'to':'U03SARAHK','text':'The geocoding fix looks good.'}}]
     if bare and 'geocoding' in ql and intent=='send_message':
         return [{'type':'slack.send_message','args':{'to':'U03SARAHK','text':'The geocoding fix looks good.'}}]
+    # Slot filler: an explicit Slack channel disambiguates bare "Sarah" to Sarah Kim,
+    # the only Sarah in Slack (Sarah Patel is external and reaches the team by email).
+    if bare and intent=='send_message' and 'slack' in ql:
+        m=re.search(r'\bsaying\s+(.+)$',q,re.I) or re.search(r'\bthat\s+(.+)$',q,re.I)
+        text=(m.group(1).strip() if m else q)
+        if text:
+            text=text[0].upper()+text[1:]
+            if not text.endswith(('.','!','?')): text+='.'
+        return [{'type':'slack.send_message','args':{'to':'U03SARAHK','text':text}}]
     # Slot filler: Patel is external (email), Kim is internal (Slack). The address
     # comes from the people table, not the command wording.
     if 'sarah patel' in ql and intent=='send_email':
@@ -146,7 +155,9 @@ def action(cmd,asof,data):
           {'type':'gmail.send','args':{'to':['john@brightline.example.com'],'cc':[],'subject':'Corrected NRR','body':'Hi John, the corrected NRR is 112%. Thanks, Alex'}},
           {'type':'slack.send_message','args':{'to':'U06BEN','text':'Thanks for the NRR fix.'}}
         ]
-    if bare and 'pricing proposal' in ql:
+    # Ambiguity guard: a bare "Sarah" that a channel did not disambiguate is asking
+    # which Sarah (Kim vs Patel), for any message/email wording, not just pricing.
+    if bare and intent in ('send_message','send_email'):
         return [{'type':'clarify','args':{'question':'Do you mean Sarah Kim or Sarah Patel?'}}]
     return [{'type':'clarify','args':{'question':'I need a little more detail to identify the intended action.'}}]
 

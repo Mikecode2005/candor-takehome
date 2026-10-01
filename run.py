@@ -36,9 +36,21 @@ def main():
     ap.add_argument('--with-holdout', action='store_true',
                     help='also score the paraphrase holdout set')
     ap.add_argument('--skip-eval', action='store_true')
+    ap.add_argument('--ask', nargs='?', const='question.txt', default=None, metavar='FILE',
+                    help='answer a free-form, numbered question file (default: question.txt) '
+                         'with the memory and action layers, then print the answers')
+    ap.add_argument('--ask-out', default='question_answers.jsonl')
     a = ap.parse_args()
 
     chrono_flags = ['--no-chrono'] if a.no_chrono else []
+
+    if a.ask:
+        if not Path(a.ask).exists():
+            print(f'Question file not found: {a.ask}')
+            return
+        run([sys.executable, 'run_ask.py', '--data', a.data,
+             '--questions', a.ask, '--out', a.ask_out])
+        return
 
     run([sys.executable, 'run_memory.py', '--data', a.data,
          '--questions', a.memory_questions, '--out', a.memory_out] + chrono_flags)

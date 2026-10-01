@@ -31,6 +31,26 @@ python3 run.py --action-commands hidden_actions.jsonl --action-out hidden_action
 
 No API key or network service is required.
 
+### Answer a free-form question list
+
+The third entry point answers the plain, numbered list a reviewer would type
+(free text, not the benchmark JSONL). Point it at a file and it routes every item
+to the memory or the action layer and prints what the system actually says, with
+the evidence ids it used:
+
+```bash
+python3 run.py --ask                 # answers question.txt (default)
+python3 run.py --ask my_questions.txt --ask-out my_answers.jsonl
+```
+
+`--ask` reads one question per numbered line, classifies each by intent
+(an action verb like "send/message/email/remind/move" goes to the action layer;
+otherwise the temporal memory answers it), and supports point-in-time questions:
+an explicit `YYYY-MM-DD` in the text becomes the `as_of` instant, otherwise the
+latest record time in the data is used as "now". The transcript is printed to
+stdout and also written to `question_answers.jsonl`. Run it standalone with
+`python3 run_ask.py --questions question.txt`.
+
 ## Architecture: CHRONOS (temporal knowledge-graph memory)
 
 ```text
