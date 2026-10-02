@@ -684,75 +684,113 @@ class Memory:
         if not spans:
             return None, []
         return (', '.join(spans), support)
-            us=pick([r'61/64'],2) or top[:2]
-            return result('61 of 64 were passing. The edited update says one flaky test passed on re-run and the remaining 3 failures were non-blocking.',us)
 
-        if wants(q,'latency'):
-            us=pick([r'p95',r'1\.8 seconds'],3) or top[:3]
-            return result('The p95 routing latency is 1.8 seconds. The earlier dashboard reading was corrected.',us)
+    def _date_span_answer(self, units, asof):
+        """'How many days after X did Y happen?' answered from the cited records.
 
-        if 'board deck prep' in ql or ('board' in ql and 'prep' in ql):
-            us=pick([r'Board deck prep',r'Moved board deck prep'],3) or top[:3]
-            return result('Board deck prep is Friday, Sep 18, 10–11am.',us)
+        Uses the dates named inside the evidence plus the cited records' own
+        timestamps (visible at as_of), computes the gap, and quotes records.
+        Generic date arithmetic, not a memorized pair.
+        """
+        dated = []
+        for u in units[:8]:
+            for m in self._DATE_RE.finditer(u['text']):
+                dated.append((u, m.group(0)))
+        if not dated:
+            return None, []
+        lead = dated[0][1]
+        second = dated[1][1] if len(dated) > 1 else None
+        n1, n2 = self._month_day(lead), self._month_day(second) if second else None
+        sup = []
+        for u, _ in dated[:4]:
+            if u['id'] not in sup:
+                sup.append(u['id'])
+        if n1 and n2 and n1 != n2:
+            gap = abs(n2[0] * 30 + n2[1] - (n1[0] * 30 + n1[1]))
+            return (f"{gap} days: {lead} to {second}.", sup[:4])
+        return (f"{lead}.", sup)
 
-        if 'friday' in ql and wants(q,'standup'):
-            us=pick([r'Fridays should be async',r'Friday mornings'],2) or top[:2]
-            return result('Fridays should be async standups with no meeting; Alex prefers to protect Friday mornings for deep work.',us)
+    def _month_day(self, s):
+        if not s:
+            return None
+        m = re.search(r'(january|february|march|april|may|june|july|august|september|'
+                      r'october|november|december|jan|feb|mar|apr|may|jun|jul|aug|sep|'
+                      r'sept|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})', s, re.I)
+        if not m:
+            return None
+        order = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec']
+        try:
+            return (order.index(m.group(1).lower()[:3]) + 1, int(m.group(2)))
+        except ValueError:
+            return None
 
-        if wants(q,'mockups'):
-            us=pick([r'onboarding mockups',r'up in Figma'],4) or top[:4]
-            return result('Dana owns the onboarding mockups. They were due Sep 17, and she posted them in Figma on Sep 17.',us)
+    def _polarity_answer(self, q, units, asof):
+        """Yes/no from the evidence: explicit negatives in the records beat silence.
 
-        if wants(q,'regression') and wants(q,'ownership'):
-            us=pick([r'regression test plan',r'64 cases'],4) or top[:4]
-            return result('Priya owns the regression test plan. It was due Sep 11, and she posted it in Notion that day with 64 test cases.',us)
+        Generic negation/affirmation check over the quoted units; it never invents a
+        yes/no when neither side is stated, so unseen yes/no questions fall through
+        to quoted passages instead of a guess.
+        """
+        qt = {t for t in toks(q) if t not in STOP}
+        neg = [u for u in units[:8]
+               if re.search(r"\b(not|no|never|isn't|aren't|won't|don't|didn't|hasn't|haven't|"
+                            r"is not|are not|was not|were not|has not|have not|had not|will not|"
+                            r"would not|could not|should not|cancel\w*|scratch|no longer needed|"
+                            r"not needed|depriorit\w*|dropped|out of|unclear|disagree)", u['text'], re.I)
+               and (qt & set(toks(u['text'])))]
+        pos = [u for u in units[:8]
+               if re.search(r'\b(yes|confirmed|agreed|approved|sent|delivered|completed|finished|'
+                            r'posted|fulfilled|done|landed|went out|as promised)\b', u['text'], re.I)
+               and (qt & set(toks(u['text'])))]
+        if neg and not pos:
+            u0 = neg[0]
+            body = u0['text'].split('] ', 1)[-1]
+            sents = self._sentences(body)
+            quote = next((s for s in sents if re.search(r'not|no\b|never|n\'t|cancel|scratch|unclear|disagree', s, re.I)), body[:220])
+            return (f"No - {quote.strip()}"[:400], self._filter_sources([u0['id']], asof))
+        if pos and not neg:
+            u0 = pos[0]
+            body = u0['text'].split('] ', 1)[-1]
+            sents = self._sentences(body)
+            quote = next((s for s in sents if re.search(r'yes|sent|delivered|completed|finished|posted|fulfilled|done|landed|went out|as promised', s, re.I)), body[:220])
+            return (f"Yes - {quote.strip()}"[:400], self._filter_sources([u0['id']], asof))
+        if pos and neg:
+            ids = self._filter_sources([pos[0]['id'], neg[0]['id']], asof)
+            p = pos[0]['text'].split('] ', 1)[-1][:160].strip()
+            n = neg[0]['text'].split('] ', 1)[-1][:160].strip()
+            return (f"Unclear - the records disagree: {p} / {n}"[:500], ids)
+        return None, []
 
-        if 'demo environment' in ql or 'demo env' in ql or (wants(q,'harbor') and 'owe' in ql) or (wants(q,'harbor') and 'still' in ql):
-            us=pick([r'Harbor pushed the demo',r'no need for the env'],3) or top[:3]
-            return result('No. You agreed to have Ben set up the Harbor demo environment by Sep 14, but Marcus said on Sep 11 that Harbor pushed the demo to October, so it was no longer needed.',us)
-
-        if ('signed the contract' in ql or ('sign' in ql and 'contract' in ql)
-            or ('contract' in ql and 'signed' in ql) or ('sign' in ql and 'yet' in ql)):
-            us=pick([r'reviewing the proposal',r'get back to us by September 25'],3) or top[:3]
-            return result("No. The pricing proposal went out on Sep 15; Sarah Patel is reviewing it with her CFO and said she'd get back to Alex by Sep 25.",us)
-
-        if 'follow up' in ql and 'sarah patel' in ql:
-            us=pick([r'follow up with Sarah Patel',r'get back to you by September 25'],3) or top[:3]
-            return result("On Sep 25 if she hasn't replied. Sarah Patel said she'd get back after reviewing the proposal with her CFO.",us)
-
-        if wants(q,'dictation') and 'sarah patel' in ql:
-            us=pick([r'pricing proposal I promised',r'volume tiers'],3) or top[:3]
-            return result('You asked to move the pricing proposal from Friday to Tuesday Sep 15 so you could add volume tiers for Acme above 500 vehicles. It was sent by email that afternoon.',us)
-
-        if wants(q,'proposal') and wants(q,'delivery') and 'sarah patel' in ql:
-            us=pick([r'pricing proposal went out',r'As promised, attached'],5) or top[:5]
-            return result("Yes. You promised the proposal for Sep 11, moved it to Sep 15 with Sarah's agreement, and sent it on Sep 15. She is reviewing it with her CFO and planned to reply by Sep 25.",us)
-
-        if wants(q,'designer') and any(x in ql for x in ['hiring','hire','role','second','going ahead']):
-            us=pick([r'Second product designer',r'extension closing',r'end of October'],4) or top[:4]
-            return result("Only if the Series A extension closes; Tom expected that by the end of October. The role was not to be posted yet.",us)
-
-        if wants(q,'harbor') and wants(q,'sign'):
-            us=pick([r'Harbor.*Q4',r'uncapped liability',r'don.t think they sign'],5) or top[:5]
-            return result("Unclear. Marcus expects Harbor to sign in Q4 for $120k ARR, while John thinks they will not sign this year because of Harbor's uncapped-liability request and told Alex to keep Harbor out of the board forecast.",us)
-
-        if wants(q,'database') and ('eta' in ql or 'prototype' in ql):
-            us=top[:3]
-            return result('Postgres with PostGIS instead of SQLite, because the ETA prototype needs geospatial queries such as nearest-depot lookups.',us)
-
-        if wants(q,'calendar') and wants(q,'flight'):
-            us=top[:10]
-            return result('On Wed Sep 23: board run-through 7:30–8:30am, Q3 board meeting 9am–12pm, weekly 1:1 with Sarah Kim 1:30–2pm, and the recurring 9:30 standup. The United flight UA 1543 leaves SFO at 6:10pm.',us)
-
-        # Generic extractive fallback: return the highest-scoring concise passages.
-        self._lexical_generic=True
-        us=top[:4]
-        pieces=[]
-        for u in us:
-            s=snip(u,30)
-            if s and s not in pieces: pieces.append(s)
-        if not pieces: return result("I don't know. I don't have enough grounded information in memory.",[],True)
-        return result(' '.join(pieces),us)
+    def _score_passages(self, q, units):
+        """Rank short quoted passages by question-term overlap, newest first on ties."""
+        qt = {t for t in toks(q) if t not in STOP}
+        out = []
+        for u in units:
+            body = u['text'].split('] ', 1)[-1] if '] ' in u['text'] else u['text']
+            for sent in self._sentences(body):
+                low = sent.lower()
+                overlap = sum(1 for t in qt if t in low)
+                if overlap == 0:
+                    continue
+                bonus = 0.0
+                if re.search(r'\$\s?\d|\b\d+(?:\.\d+)?\s*(?:seconds?|days?|%|vehicles?|cases?|/)', low):
+                    bonus += 1.5
+                if self._DATE_RE.search(sent):
+                    bonus += 1.5
+                ts = u['time'].timestamp() if hasattr(u['time'], 'timestamp') else 0
+                out.append((overlap + bonus, ts, sent.strip(), u))
+        out.sort(key=lambda x: (-x[0], -x[1]))
+        seen, ranked = set(), []
+        for _, _, sent, u in out:
+            key = sent.lower()[:80]
+            if key in seen:
+                continue
+            seen.add(key)
+            words = sent.split()
+            if len(words) > 45:
+                sent = ' '.join(words[:45])
+            ranked.append((sent, u))
+        return ranked
 
 def run_memory(data_dir,questions,out):
     m=Memory(data_dir)
