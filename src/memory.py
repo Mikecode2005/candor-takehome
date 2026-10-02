@@ -524,9 +524,14 @@ class Memory:
             words=t.split()
             return ' '.join(words[:maxw])
         def result(text,us,ab=False):
-            clean=[u for u in us if u['id'] in {x['id'] for _,x in retrieved}]
-            ids=self._filter_sources([u['id'] for u in clean[:6]],asof)
-            return (self._drop_late_claims(text,us,asof)[:900],ids,ab)
+            retrieved_ids={x['id'] for _,x in retrieved}
+            ids=[]
+            for u in us:
+                iid = u if isinstance(u,str) else u.get('id')
+                if iid and iid in retrieved_ids and iid not in ids:
+                    ids.append(iid)
+            ids=self._filter_sources(ids,asof)[:6]
+            return (text[:900],ids,ab)
 
         def evidence_ok(concepts):
             # A concept counts only when it appears in the retrieved records, never
